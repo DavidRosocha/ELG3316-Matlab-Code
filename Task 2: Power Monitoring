@@ -1,0 +1,398 @@
+%% ELG 3316 - Simulation Lab - Task 2: Power Monitoring
+% This script monitors and plots power flow in a separately-excited DC motor
+% for various load conditions
+% Author: [Your Name]
+% Date: [Current Date]
+
+clear all; close all; clc;
+
+fprintf('========================================\n');
+fprintf('TASK 2: POWER MONITORING\n');
+fprintf('========================================\n\n');
+
+%% Motor Parameters from Table 3-2 (Separately Excited DC Motor)
+Lf = 125;           % Field inductance (H)
+Rf = 240;           % Field resistance (Ohm)
+Rxf = 0;            % Variable field resistance (Ohm) - set to 0
+La = 0.012;         % Armature inductance (H)
+Ra = 0.6;           % Armature resistance (Ohm)
+Rxa = 0;            % Variable armature resistance (Ohm) - set to 0
+Va = 240;           % Armature voltage (V)
+Vf = 240;           % Field voltage (V)
+G = 1.8;            % Motor constant (H)
+J = 1;              % Moment of inertia (kg.m^2)
+
+%% Define Load Torques to Test
+% Test with no load and at least 5 different mechanical loads
+tau_load_values = [0, 20, 40, 60, 80, 100];  % Newton-meters
+num_loads = length(tau_load_values);
+
+% Colors for plots
+colors = lines(num_loads);
+
+%% Initialize Storage Arrays
+% We'll store results for each load case
+all_results = cell(num_loads, 1);
+
+%% Simulate Each Load Case
+fprintf('Running simulations for different load torques...\n\n');
+
+for idx = 1:num_loads
+    tau_load = tau_load_values(idx);
+    
+    fprintf('  Simulating with tau_load = %.1f Nm... ', tau_load);
+    
+    % Initial conditions [if(0), ia(0), omega_m(0)]
+    y0 = [0; 0; 0];
+    
+    % Time span - simulate long enough to reach steady state
+    tspan = [0 5];  % 5 seconds
+    
+    % Define ODE function for separately-excited DC motor
+    ode_separate = @(t, y) dc_motor_separate_ode(t, y, Lf, Rf, Rxf, La, Ra, Rxa, ...
+                                                  Vf, Va, G, J, tau_load);
+    
+    % Solve using ODE45
+    [t, y] = ode45(ode_separate, tspan, y0);
+    
+    % Extract state variables
+    if_t = y(:, 1);      % Field current (A)
+    ia_t = y(:, 2);      % Armature current (A)
+    omega_m_t = y(:, 3); % Motor speed (rad/s)
+    
+    % Calculate derived quantities
+    % Back EMF
+    ea_t = G * if_t .* omega_m_t;  % Volts
+    
+    % Mechanical torque
+    tau_mech_t = G * if_t .* ia_t;  % N-m
+    
+    % POWER CALCULATIONS
+    % (a) Power consumed by armature circuit: P_a = V_a * i_a
+    p_a_t = Va * ia_t;  % Watts
+    
+    % (b) Power consumed by field circuit: P_f = V_f * i_f
+    p_f_t = Vf * if_t;  % Watts
+    
+    % (c) Power consumed in doing mechanical work: P_m = tau_mech * omega_m
+    p_m_t = tau_mech_t .* omega_m_t;  % Watts
+    
+    % Additional power components for conservation analysis:
+    % Power dissipated in armature resistance
+    p_ra_t = (Ra + Rxa) * ia_t.^2;  % I^2*R losses in armature
+    
+    % Power dissipated in field resistance
+    p_rf_t = (Rf + Rxf) * if_t.^2;  % I^2*R losses in field
+    
+    % Power delivered to back EMF (electrical to mechanical conversion)
+    p_ea_t = ea_t .* ia_t;  % e_a * i_a
+    
+    % Power consumed by the load
+    p_load_t = tau_load * omega_m_t;  % Watts
+    
+    % Store results
+    all_results{idx}.t = t;
+    all_results{idx}.if_t = if_t;
+    all_results{idx}.ia_t = ia_t;
+    all_results{idx}.omega_m_t = omega_m_t;
+    all_results{idx}.ea_t = ea_t;
+    all_results{idx}.tau_mech_t = tau_mech_t;
+    all_results{idx}.p_a_t = p_a_t;
+    all_results{idx}.p_f_t = p_f_t;
+    all_results{idx}.p_m_t = p_m_t;
+    all_results{idx}.p_ra_t = p_ra_t;
+    all_results{idx}.p_rf_t = p_rf_t;
+    all_results{idx}.p_ea_t = p_ea_t;
+    all_results{idx}.p_load_t = p_load_t;
+    all_results{idx}.tau_load = tau_load;
+    
+    fprintf('Done.\n');
+end
+
+fprintf('\nAll simulations complete.\n\n');
+
+%% ========================================================================
+%  PLOT 1: Power Consumed by Armature Circuit vs Time
+%  ========================================================================
+
+fprintf('Creating power monitoring plots...\n');
+
+fig1 = figure('Position', [100, 100, 1200, 800]);
+
+subplot(3, 1, 1);
+hold on;
+for idx = 1:num_loads
+    plot(all_results{idx}.t, all_results{idx}.p_a_t, 'LineWidth', 2, ...
+         'Color', colors(idx,:), 'DisplayName', ...
+         sprintf('\\tau_{load} = %.0f Nm', tau_load_values(idx)));
+end
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('P_a (W)', 'FontSize', 11, 'FontWeight', 'bold');
+title('(a) Power Consumed by Armature Circuit: P_a(t) = V_a \times i_a(t)', ...
+      'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 9);
+grid on;
+set(gca, 'FontSize', 10);
+
+%% ========================================================================
+%  PLOT 2: Power Consumed by Field Circuit vs Time
+%  ========================================================================
+
+subplot(3, 1, 2);
+hold on;
+for idx = 1:num_loads
+    plot(all_results{idx}.t, all_results{idx}.p_f_t, 'LineWidth', 2, ...
+         'Color', colors(idx,:), 'DisplayName', ...
+         sprintf('\\tau_{load} = %.0f Nm', tau_load_values(idx)));
+end
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('P_f (W)', 'FontSize', 11, 'FontWeight', 'bold');
+title('(b) Power Consumed by Field Circuit: P_f(t) = V_f \times i_f(t)', ...
+      'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 9);
+grid on;
+set(gca, 'FontSize', 10);
+
+%% ========================================================================
+%  PLOT 3: Power Consumed in Doing Mechanical Work vs Time
+%  ========================================================================
+
+subplot(3, 1, 3);
+hold on;
+for idx = 1:num_loads
+    plot(all_results{idx}.t, all_results{idx}.p_m_t, 'LineWidth', 2, ...
+         'Color', colors(idx,:), 'DisplayName', ...
+         sprintf('\\tau_{load} = %.0f Nm', tau_load_values(idx)));
+end
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('P_m (W)', 'FontSize', 11, 'FontWeight', 'bold');
+title('(c) Mechanical Power Output: P_m(t) = \tau_{mech}(t) \times \omega_m(t)', ...
+      'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 9);
+grid on;
+set(gca, 'FontSize', 10);
+
+sgtitle('Figure 3: Power Monitoring for Separately-Excited DC Motor', ...
+        'FontSize', 14, 'FontWeight', 'bold');
+
+% Save figure
+saveas(fig1, 'Task2_PowerMonitoring.png');
+saveas(fig1, 'Task2_PowerMonitoring.fig');
+
+fprintf('  Saved: Task2_PowerMonitoring.png/fig\n');
+
+%% ========================================================================
+%  PLOT 4: Power Conservation in Armature Circuit
+%  ========================================================================
+
+% For detailed power conservation analysis, plot for one representative case
+% Use the highest load case for clearest demonstration
+idx_demo = num_loads;  % Highest load case
+
+fig2 = figure('Position', [100, 100, 1400, 900]);
+
+% Subplot 1: Individual power components
+subplot(2, 2, 1);
+hold on;
+plot(all_results{idx_demo}.t, all_results{idx_demo}.p_a_t, 'b-', 'LineWidth', 2.5, ...
+     'DisplayName', 'P_a = V_a \times i_a (Input)');
+plot(all_results{idx_demo}.t, all_results{idx_demo}.p_ra_t, 'r--', 'LineWidth', 2, ...
+     'DisplayName', 'P_{Ra} = i_a^2 \times R_a (Copper Loss)');
+plot(all_results{idx_demo}.t, all_results{idx_demo}.p_ea_t, 'g-.', 'LineWidth', 2, ...
+     'DisplayName', 'P_{ea} = e_a \times i_a (To Mechanical)');
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Power (W)', 'FontSize', 11, 'FontWeight', 'bold');
+title(sprintf('Armature Circuit Power Components (\\tau_{load} = %.0f Nm)', ...
+      tau_load_values(idx_demo)), 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+set(gca, 'FontSize', 10);
+
+% Subplot 2: Power balance verification
+subplot(2, 2, 2);
+% Power balance: P_a should equal P_Ra + P_ea
+p_balance_t = all_results{idx_demo}.p_ra_t + all_results{idx_demo}.p_ea_t;
+hold on;
+plot(all_results{idx_demo}.t, all_results{idx_demo}.p_a_t, 'b-', 'LineWidth', 2.5, ...
+     'DisplayName', 'P_a (Input)');
+plot(all_results{idx_demo}.t, p_balance_t, 'r--', 'LineWidth', 2, ...
+     'DisplayName', 'P_{Ra} + P_{ea} (Sum)');
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Power (W)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Armature Power Conservation Verification', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+set(gca, 'FontSize', 10);
+
+% Subplot 3: Power balance error
+subplot(2, 2, 3);
+p_error_t = all_results{idx_demo}.p_a_t - p_balance_t;
+plot(all_results{idx_demo}.t, p_error_t, 'k-', 'LineWidth', 1.5);
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Power Error (W)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Power Balance Error: P_a - (P_{Ra} + P_{ea})', 'FontSize', 12, 'FontWeight', 'bold');
+grid on;
+set(gca, 'FontSize', 10);
+ylim([-1, 1]);  % Should be near zero
+
+% Subplot 4: Mechanical power flow
+subplot(2, 2, 4);
+hold on;
+plot(all_results{idx_demo}.t, all_results{idx_demo}.p_m_t, 'g-', 'LineWidth', 2.5, ...
+     'DisplayName', 'P_m = \tau_{mech} \times \omega_m (Developed)');
+plot(all_results{idx_demo}.t, all_results{idx_demo}.p_load_t, 'm--', 'LineWidth', 2, ...
+     'DisplayName', 'P_{load} = \tau_{load} \times \omega_m (To Load)');
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Power (W)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Mechanical Power Flow', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+set(gca, 'FontSize', 10);
+
+sgtitle(sprintf('Figure 4: Power Conservation in Armature Circuit (\\tau_{load} = %.0f Nm)', ...
+        tau_load_values(idx_demo)), 'FontSize', 14, 'FontWeight', 'bold');
+
+% Save figure
+saveas(fig2, 'Task2_PowerConservation.png');
+saveas(fig2, 'Task2_PowerConservation.fig');
+
+fprintf('  Saved: Task2_PowerConservation.png/fig\n');
+
+%% ========================================================================
+%  PLOT 5: Steady-State Power Summary
+%  ========================================================================
+
+fig3 = figure('Position', [100, 100, 1200, 600]);
+
+% Extract steady-state values for each load
+ss_p_a = zeros(1, num_loads);
+ss_p_f = zeros(1, num_loads);
+ss_p_m = zeros(1, num_loads);
+ss_p_ra = zeros(1, num_loads);
+ss_p_rf = zeros(1, num_loads);
+ss_p_load = zeros(1, num_loads);
+ss_efficiency = zeros(1, num_loads);
+
+for idx = 1:num_loads
+    % Extract last 10% of simulation
+    ss_idx = round(0.9 * length(all_results{idx}.t)):length(all_results{idx}.t);
+    
+    ss_p_a(idx) = mean(all_results{idx}.p_a_t(ss_idx));
+    ss_p_f(idx) = mean(all_results{idx}.p_f_t(ss_idx));
+    ss_p_m(idx) = mean(all_results{idx}.p_m_t(ss_idx));
+    ss_p_ra(idx) = mean(all_results{idx}.p_ra_t(ss_idx));
+    ss_p_rf(idx) = mean(all_results{idx}.p_rf_t(ss_idx));
+    ss_p_load(idx) = mean(all_results{idx}.p_load_t(ss_idx));
+    
+    % Calculate efficiency: eta = P_load / (P_a + P_f)
+    % Handle division by zero for no-load case
+    if (ss_p_a(idx) + ss_p_f(idx)) > 0
+        ss_efficiency(idx) = ss_p_load(idx) / (ss_p_a(idx) + ss_p_f(idx)) * 100;
+    else
+        ss_efficiency(idx) = 0;
+    end
+end
+
+% Subplot 1: Power vs Load Torque
+subplot(1, 2, 1);
+hold on;
+plot(tau_load_values, ss_p_a, 'b-o', 'LineWidth', 2, 'MarkerSize', 8, ...
+     'MarkerFaceColor', 'b', 'DisplayName', 'P_a (Armature Input)');
+plot(tau_load_values, ss_p_f, 'r-s', 'LineWidth', 2, 'MarkerSize', 8, ...
+     'MarkerFaceColor', 'r', 'DisplayName', 'P_f (Field Input)');
+plot(tau_load_values, ss_p_m, 'g-^', 'LineWidth', 2, 'MarkerSize', 8, ...
+     'MarkerFaceColor', 'g', 'DisplayName', 'P_m (Mechanical Output)');
+plot(tau_load_values, ss_p_load, 'm-d', 'LineWidth', 2, 'MarkerSize', 8, ...
+     'MarkerFaceColor', 'm', 'DisplayName', 'P_{load} (To Load)');
+xlabel('Load Torque \tau_{load} (Nm)', 'FontSize', 12, 'FontWeight', 'bold');
+ylabel('Steady-State Power (W)', 'FontSize', 12, 'FontWeight', 'bold');
+title('Steady-State Power vs Load Torque', 'FontSize', 13, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+set(gca, 'FontSize', 11);
+
+% Subplot 2: Efficiency vs Load Torque
+subplot(1, 2, 2);
+plot(tau_load_values, ss_efficiency, 'k-o', 'LineWidth', 2.5, 'MarkerSize', 10, ...
+     'MarkerFaceColor', 'k');
+xlabel('Load Torque \tau_{load} (Nm)', 'FontSize', 12, 'FontWeight', 'bold');
+ylabel('Efficiency (%)', 'FontSize', 12, 'FontWeight', 'bold');
+title('Motor Efficiency vs Load Torque', 'FontSize', 13, 'FontWeight', 'bold');
+grid on;
+set(gca, 'FontSize', 11);
+ylim([0 100]);
+
+sgtitle('Figure 5: Steady-State Power Analysis', 'FontSize', 14, 'FontWeight', 'bold');
+
+% Save figure
+saveas(fig3, 'Task2_SteadyStatePower.png');
+saveas(fig3, 'Task2_SteadyStatePower.fig');
+
+fprintf('  Saved: Task2_SteadyStatePower.png/fig\n');
+
+%% ========================================================================
+%  SUMMARY TABLE
+%  ========================================================================
+
+fprintf('\n========================================\n');
+fprintf('STEADY-STATE POWER SUMMARY\n');
+fprintf('========================================\n\n');
+
+fprintf('%-12s %-12s %-12s %-12s %-12s %-12s %-12s\n', ...
+        'Load (Nm)', 'P_a (W)', 'P_f (W)', 'P_m (W)', 'P_load (W)', 'P_loss (W)', 'Eff (%)');
+fprintf('%-12s %-12s %-12s %-12s %-12s %-12s %-12s\n', ...
+        '--------', '-------', '-------', '-------', '---------', '---------', '--------');
+
+for idx = 1:num_loads
+    p_loss = (ss_p_a(idx) + ss_p_f(idx)) - ss_p_load(idx);
+    fprintf('%-12.1f %-12.2f %-12.2f %-12.2f %-12.2f %-12.2f %-12.2f\n', ...
+            tau_load_values(idx), ss_p_a(idx), ss_p_f(idx), ss_p_m(idx), ...
+            ss_p_load(idx), p_loss, ss_efficiency(idx));
+end
+
+fprintf('\n========================================\n');
+fprintf('Power Conservation Verification:\n');
+fprintf('For each case: P_a = P_{Ra} + e_a*i_a\n');
+fprintf('========================================\n\n');
+
+for idx = 1:num_loads
+    ss_idx = round(0.9 * length(all_results{idx}.t)):length(all_results{idx}.t);
+    ss_p_ea = mean(all_results{idx}.p_ea_t(ss_idx));
+    
+    fprintf('Load = %.1f Nm: P_a = %.2f W, P_Ra + P_ea = %.2f + %.2f = %.2f W, Error = %.4f W\n', ...
+            tau_load_values(idx), ss_p_a(idx), ss_p_ra(idx), ss_p_ea, ...
+            ss_p_ra(idx) + ss_p_ea, ss_p_a(idx) - (ss_p_ra(idx) + ss_p_ea));
+end
+
+fprintf('\n========================================\n');
+fprintf('All Task 2 simulations complete!\n');
+fprintf('Figures saved to current directory.\n');
+fprintf('========================================\n');
+
+%% ========================================================================
+%  ODE FUNCTION FOR SEPARATELY-EXCITED DC MOTOR
+%  ========================================================================
+
+function dydt = dc_motor_separate_ode(t, y, Lf, Rf, Rxf, La, Ra, Rxa, Vf, Va, G, J, tau_load)
+    % Extract state variables
+    if_val = y(1);      % Field current
+    ia = y(2);          % Armature current
+    omega_m = y(3);     % Motor speed
+    
+    % Back EMF
+    ea = G * if_val * omega_m;
+    
+    % State equations
+    % Equation (3.5): Field circuit
+    dif_dt = (Vf - (Rf + Rxf) * if_val) / Lf;
+    
+    % Equation (3.7): Armature circuit
+    dia_dt = (Va - ia * (Ra + Rxa) - ea) / La;
+    
+    % Equation (3.8): Mechanical equation
+    tau_mech = G * if_val * ia;
+    domega_dt = (tau_mech - tau_load) / J;
+    
+    % Return derivatives
+    dydt = [dif_dt; dia_dt; domega_dt];
+end
