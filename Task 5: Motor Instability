@@ -1,0 +1,411 @@
+%% ELG 3316 - Simulation Lab - Task 5: Motor Instability
+% This script demonstrates motor instability when field circuit opens
+% in a shunt-connected DC motor
+% Author: [Your Name]
+% Date: [Current Date]
+
+clear all; close all; clc;
+
+fprintf('========================================\n');
+fprintf('TASK 5: MOTOR INSTABILITY\n');
+fprintf('========================================\n\n');
+
+fprintf('Quote from A.R. Daniels:\n');
+fprintf('"The shunt motor is essentially a constant speed machine with\n');
+fprintf(' a low speed regulation. ...the speed is inversely proportional\n');
+fprintf(' to the field flux, so that its speed can be varied by control\n');
+fprintf(' of field flux. When, however, the motor operates at very low\n');
+fprintf(' values of field flux, the speed will be high and, if the field\n');
+fprintf(' becomes open-circuited the speed will rise rapidly beyond the\n');
+fprintf(' permissible limit governed by the mechanical structure."\n\n');
+
+%% Motor Parameters from Table 3-2 (Shunt Connection)
+Lf = 125;           % Field inductance (H)
+Rf = 240;           % Field resistance (Ohm)
+Rxf = 0;            % Variable field resistance (Ohm) - initially 0
+La = 0.012;         % Armature inductance (H)
+Ra = 0.6;           % Armature resistance (Ohm)
+Rxa = 0;            % Variable armature resistance (Ohm) - set to 0
+Va = 240;           % Armature voltage (V)
+G = 1.8;            % Motor constant (H)
+J = 1;              % Moment of inertia (kg.m^2)
+omega_max = 1000;   % Maximum permissible speed (rad/s)
+
+% Load torque - use non-zero value as suggested
+tau_load = 10;      % N·m (moderate load)
+
+fprintf('Motor Parameters:\n');
+fprintf('  V_a = %.0f V (shunt connection: V_f = V_a)\n', Va);
+fprintf('  R_a = %.1f Ohm, R_f = %.0f Ohm\n', Ra, Rf);
+fprintf('  G = %.1f H, J = %.0f kg·m²\n', G, J);
+fprintf('  omega_max = %.0f rad/s (%.0f RPM)\n', omega_max, omega_max*60/(2*pi));
+fprintf('  Load torque = %.0f Nm\n\n', tau_load);
+
+%% ========================================================================
+%  SIMULATION SCENARIO: Field Open-Circuit Event
+%  ========================================================================
+
+fprintf('========================================\n');
+fprintf('SIMULATION SCENARIO\n');
+fprintf('========================================\n\n');
+
+fprintf('The motor will operate normally, then at t = 3 seconds:\n');
+fprintf('  - Field circuit opens (simulated by Rf → 5000 Ohm)\n');
+fprintf('  - Field current collapses to near zero\n');
+fprintf('  - Motor speed increases rapidly\n');
+fprintf('  - Speed exceeds omega_max (dangerous!)\n\n');
+
+% Time of field open-circuit event
+t_open_circuit = 3.0;  % seconds
+
+% Resistance values
+Rf_normal = Rf;        % Normal field resistance
+Rf_open = 5000;        % Very high resistance to simulate open circuit
+
+fprintf('Simulating motor operation...\n\n');
+
+%% Phase 1: Normal Operation (before open circuit)
+fprintf('Phase 1: Normal operation (0 to %.1f s)\n', t_open_circuit);
+
+% Initial conditions [if(0), ia(0), omega_m(0)]
+y0 = [0; 0; 0];
+
+% Time span for Phase 1
+tspan1 = [0, t_open_circuit];
+
+% ODE function for shunt motor (normal operation)
+ode_normal = @(t, y) dc_motor_shunt_ode(t, y, Lf, Rf_normal, Rxf, La, Ra, Rxa, ...
+                                        Va, G, J, tau_load, omega_max);
+
+% Solve Phase 1
+options = odeset('RelTol', 1e-6, 'AbsTol', 1e-8, 'Events', @(t,y) speed_limit_event(t, y, omega_max));
+[t1, y1, te1, ye1, ie1] = ode45(ode_normal, tspan1, y0, options);
+
+% Extract Phase 1 results
+if1 = y1(:, 1);
+ia1 = y1(:, 2);
+omega1 = y1(:, 3);
+
+fprintf('  Phase 1 complete. Final state:\n');
+fprintf('    i_f = %.3f A\n', if1(end));
+fprintf('    i_a = %.2f A\n', ia1(end));
+fprintf('    omega = %.2f rad/s (%.1f RPM)\n', omega1(end), omega1(end)*60/(2*pi));
+
+%% Phase 2: After Field Open-Circuit
+fprintf('\nPhase 2: After field open-circuit (%.1f s onwards)\n', t_open_circuit);
+
+% Initial conditions for Phase 2 = Final state of Phase 1
+y0_phase2 = y1(end, :)';
+
+% Time span for Phase 2
+t_duration = 10;  % Total simulation time
+tspan2 = [t_open_circuit, t_duration];
+
+% ODE function for shunt motor (open circuit condition)
+ode_open = @(t, y) dc_motor_shunt_ode(t, y, Lf, Rf_open, Rxf, La, Ra, Rxa, ...
+                                      Va, G, J, tau_load, omega_max);
+
+% Solve Phase 2
+[t2, y2, te2, ye2, ie2] = ode45(ode_open, tspan2, y0_phase2, options);
+
+% Extract Phase 2 results
+if2 = y2(:, 1);
+ia2 = y2(:, 2);
+omega2 = y2(:, 3);
+
+fprintf('  Phase 2 complete. Final state:\n');
+fprintf('    i_f = %.6f A (nearly zero)\n', if2(end));
+fprintf('    i_a = %.2f A\n', ia2(end));
+fprintf('    omega = %.2f rad/s (%.1f RPM)\n', omega2(end), omega2(end)*60/(2*pi));
+
+% Check if speed exceeded limit
+if any(omega2 > omega_max)
+    idx_exceed = find(omega2 > omega_max, 1);
+    t_exceed = t2(idx_exceed);
+    omega_exceed = omega2(idx_exceed);
+    fprintf('\n  WARNING: Speed exceeded omega_max!\n');
+    fprintf('    Time when omega > omega_max: %.3f s\n', t_exceed);
+    fprintf('    Speed at that time: %.2f rad/s (%.1f RPM)\n', omega_exceed, omega_exceed*60/(2*pi));
+    fprintf('    Maximum speed reached: %.2f rad/s (%.1f RPM)\n', max(omega2), max(omega2)*60/(2*pi));
+else
+    fprintf('\n  Speed remained below omega_max (%.0f rad/s)\n', omega_max);
+end
+
+%% Combine Results
+t_combined = [t1; t2];
+if_combined = [if1; if2];
+ia_combined = [ia1; ia2];
+omega_combined = [omega1; omega2];
+
+% Calculate additional quantities
+tau_mech_combined = G * if_combined .* ia_combined;
+ea_combined = G * if_combined .* omega_combined;
+
+%% ========================================================================
+%  PLOT RESULTS
+%  ========================================================================
+
+fprintf('\nCreating plots...\n');
+
+fig1 = figure('Position', [100, 100, 1400, 1000]);
+
+% Subplot 1: Field Current vs Time
+subplot(3, 2, 1);
+plot(t_combined, if_combined, 'b-', 'LineWidth', 2.5);
+hold on;
+xline(t_open_circuit, 'r--', 'LineWidth', 2, 'Label', 'Field Opens', ...
+      'LabelHorizontalAlignment', 'left', 'FontSize', 10);
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Field Current i_f (A)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Field Current vs Time', 'FontSize', 12, 'FontWeight', 'bold');
+grid on;
+set(gca, 'FontSize', 10);
+
+% Subplot 2: Armature Current vs Time
+subplot(3, 2, 2);
+plot(t_combined, ia_combined, 'r-', 'LineWidth', 2.5);
+hold on;
+xline(t_open_circuit, 'r--', 'LineWidth', 2, 'Label', 'Field Opens', ...
+      'LabelHorizontalAlignment', 'left', 'FontSize', 10);
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Armature Current i_a (A)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Armature Current vs Time', 'FontSize', 12, 'FontWeight', 'bold');
+grid on;
+set(gca, 'FontSize', 10);
+
+% Subplot 3: Motor Speed vs Time (KEY PLOT!)
+subplot(3, 2, 3);
+plot(t_combined, omega_combined, 'g-', 'LineWidth', 2.5);
+hold on;
+xline(t_open_circuit, 'r--', 'LineWidth', 2, 'Label', 'Field Opens', ...
+      'LabelHorizontalAlignment', 'left', 'FontSize', 10);
+yline(omega_max, 'm--', 'LineWidth', 2.5, 'Label', '\omega_{max} (Safe Limit)', ...
+      'LabelHorizontalAlignment', 'right', 'FontSize', 10);
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Motor Speed \omega_m (rad/s)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Motor Speed vs Time - INSTABILITY DEMONSTRATION', 'FontSize', 12, 'FontWeight', 'bold');
+grid on;
+set(gca, 'FontSize', 10);
+% Highlight danger zone
+if max(omega_combined) > omega_max
+    ylim([0, max(omega_combined)*1.1]);
+    % Shade dangerous region
+    y_danger = [omega_max, omega_max, max(get(gca,'YLim')), max(get(gca,'YLim'))];
+    x_danger = [0, max(t_combined), max(t_combined), 0];
+    patch(x_danger, y_danger, 'r', 'FaceAlpha', 0.1, 'EdgeColor', 'none');
+end
+
+% Subplot 4: Mechanical Torque vs Time
+subplot(3, 2, 4);
+plot(t_combined, tau_mech_combined, 'm-', 'LineWidth', 2.5);
+hold on;
+xline(t_open_circuit, 'r--', 'LineWidth', 2, 'Label', 'Field Opens', ...
+      'LabelHorizontalAlignment', 'left', 'FontSize', 10);
+yline(tau_load, 'k--', 'LineWidth', 2, 'Label', '\tau_{load}');
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Mechanical Torque \tau_{mech} (Nm)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Mechanical Torque vs Time', 'FontSize', 12, 'FontWeight', 'bold');
+grid on;
+set(gca, 'FontSize', 10);
+
+% Subplot 5: Speed in RPM
+subplot(3, 2, 5);
+omega_rpm = omega_combined * 60 / (2*pi);
+omega_max_rpm = omega_max * 60 / (2*pi);
+plot(t_combined, omega_rpm, 'Color', [0.2 0.6 0.2], 'LineWidth', 2.5);
+hold on;
+xline(t_open_circuit, 'r--', 'LineWidth', 2, 'Label', 'Field Opens', ...
+      'LabelHorizontalAlignment', 'left', 'FontSize', 10);
+yline(omega_max_rpm, 'm--', 'LineWidth', 2.5, 'Label', 'Max Safe Speed (RPM)', ...
+      'LabelHorizontalAlignment', 'right', 'FontSize', 10);
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Motor Speed (RPM)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Motor Speed (RPM) - Exceeds Safe Limit', 'FontSize', 12, 'FontWeight', 'bold');
+grid on;
+set(gca, 'FontSize', 10);
+if max(omega_rpm) > omega_max_rpm
+    ylim([0, max(omega_rpm)*1.1]);
+end
+
+% Subplot 6: Back-EMF vs Time
+subplot(3, 2, 6);
+plot(t_combined, ea_combined, 'c-', 'LineWidth', 2.5);
+hold on;
+xline(t_open_circuit, 'r--', 'LineWidth', 2, 'Label', 'Field Opens', ...
+      'LabelHorizontalAlignment', 'left', 'FontSize', 10);
+yline(Va, 'k--', 'LineWidth', 2, 'Label', 'V_a');
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Back-EMF e_a (V)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Back-EMF vs Time', 'FontSize', 12, 'FontWeight', 'bold');
+grid on;
+set(gca, 'FontSize', 10);
+
+sgtitle('Figure 10: Motor Instability - Field Open-Circuit Event', ...
+        'FontSize', 14, 'FontWeight', 'bold');
+
+% Save
+saveas(fig1, 'Task5_MotorInstability.png');
+saveas(fig1, 'Task5_MotorInstability.fig');
+fprintf('  Saved: Task5_MotorInstability.png/fig\n');
+
+%% ========================================================================
+%  ZOOMED VIEW: Before and After Field Opening
+%  ========================================================================
+
+fig2 = figure('Position', [150, 150, 1400, 500]);
+
+% Zoom window
+t_zoom_start = t_open_circuit - 0.5;
+t_zoom_end = t_open_circuit + 2.0;
+idx_zoom = (t_combined >= t_zoom_start) & (t_combined <= t_zoom_end);
+
+subplot(1, 3, 1);
+plot(t_combined(idx_zoom), if_combined(idx_zoom), 'b-', 'LineWidth', 2.5);
+hold on;
+xline(t_open_circuit, 'r--', 'LineWidth', 2);
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Field Current i_f (A)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Field Current (Zoomed)', 'FontSize', 12, 'FontWeight', 'bold');
+grid on;
+set(gca, 'FontSize', 10);
+
+subplot(1, 3, 2);
+plot(t_combined(idx_zoom), ia_combined(idx_zoom), 'r-', 'LineWidth', 2.5);
+hold on;
+xline(t_open_circuit, 'r--', 'LineWidth', 2);
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Armature Current i_a (A)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Armature Current (Zoomed)', 'FontSize', 12, 'FontWeight', 'bold');
+grid on;
+set(gca, 'FontSize', 10);
+
+subplot(1, 3, 3);
+plot(t_combined(idx_zoom), omega_combined(idx_zoom), 'g-', 'LineWidth', 2.5);
+hold on;
+xline(t_open_circuit, 'r--', 'LineWidth', 2);
+yline(omega_max, 'm--', 'LineWidth', 2);
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Motor Speed \omega_m (rad/s)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Motor Speed (Zoomed) - Rapid Increase', 'FontSize', 12, 'FontWeight', 'bold');
+grid on;
+set(gca, 'FontSize', 10);
+
+sgtitle('Figure 11: Zoomed View Around Field Open-Circuit Event', ...
+        'FontSize', 14, 'FontWeight', 'bold');
+
+% Save
+saveas(fig2, 'Task5_ZoomedView.png');
+saveas(fig2, 'Task5_ZoomedView.fig');
+fprintf('  Saved: Task5_ZoomedView.png/fig\n');
+
+%% ========================================================================
+%  SUMMARY AND ANALYSIS
+%  ========================================================================
+
+fprintf('\n========================================\n');
+fprintf('SUMMARY AND ANALYSIS\n');
+fprintf('========================================\n\n');
+
+% Find key time points
+idx_before = find(t_combined < t_open_circuit, 1, 'last');
+idx_after_1s = find(t_combined >= t_open_circuit + 1.0, 1, 'first');
+idx_final = length(t_combined);
+
+fprintf('BEFORE FIELD OPENING (t = %.1f s):\n', t_combined(idx_before));
+fprintf('  Field current:   %.3f A\n', if_combined(idx_before));
+fprintf('  Armature current: %.2f A\n', ia_combined(idx_before));
+fprintf('  Motor speed:     %.2f rad/s (%.1f RPM)\n', ...
+        omega_combined(idx_before), omega_combined(idx_before)*60/(2*pi));
+fprintf('  Mechanical torque: %.2f Nm\n', tau_mech_combined(idx_before));
+fprintf('  Back-EMF:        %.2f V\n', ea_combined(idx_before));
+
+fprintf('\nIMMEDIATELY AFTER FIELD OPENING (t = %.1f s):\n', t_combined(idx_after_1s));
+fprintf('  Field current:   %.6f A (nearly zero!)\n', if_combined(idx_after_1s));
+fprintf('  Armature current: %.2f A\n', ia_combined(idx_after_1s));
+fprintf('  Motor speed:     %.2f rad/s (%.1f RPM)\n', ...
+        omega_combined(idx_after_1s), omega_combined(idx_after_1s)*60/(2*pi));
+fprintf('  Mechanical torque: %.2f Nm\n', tau_mech_combined(idx_after_1s));
+fprintf('  Back-EMF:        %.2f V\n', ea_combined(idx_after_1s));
+
+fprintf('\nFINAL STATE (t = %.1f s):\n', t_combined(idx_final));
+fprintf('  Field current:   %.6f A\n', if_combined(idx_final));
+fprintf('  Armature current: %.2f A\n', ia_combined(idx_final));
+fprintf('  Motor speed:     %.2f rad/s (%.1f RPM)\n', ...
+        omega_combined(idx_final), omega_combined(idx_final)*60/(2*pi));
+fprintf('  Mechanical torque: %.2f Nm\n', tau_mech_combined(idx_final));
+fprintf('  Back-EMF:        %.2f V\n', ea_combined(idx_final));
+
+% Speed increase analysis
+speed_increase = omega_combined(idx_final) - omega_combined(idx_before);
+percent_increase = (speed_increase / omega_combined(idx_before)) * 100;
+
+fprintf('\nSPEED INCREASE ANALYSIS:\n');
+fprintf('  Initial speed:    %.2f rad/s (%.1f RPM)\n', ...
+        omega_combined(idx_before), omega_combined(idx_before)*60/(2*pi));
+fprintf('  Final speed:      %.2f rad/s (%.1f RPM)\n', ...
+        omega_combined(idx_final), omega_combined(idx_final)*60/(2*pi));
+fprintf('  Speed increase:   %.2f rad/s (%.1f%%)\n', speed_increase, percent_increase);
+fprintf('  Maximum safe speed: %.0f rad/s (%.0f RPM)\n', omega_max, omega_max*60/(2*pi));
+
+if max(omega_combined) > omega_max
+    fprintf('  **DANGER**: Speed EXCEEDED safe limit!\n');
+    fprintf('  Maximum speed reached: %.2f rad/s (%.0f%% above limit)\n', ...
+            max(omega_combined), (max(omega_combined)/omega_max - 1)*100);
+else
+    fprintf('  Speed remained below safe limit.\n');
+end
+
+fprintf('\nPHYSICAL EXPLANATION:\n');
+fprintf('When the field circuit opens:\n');
+fprintf('1. Field current i_f collapses to nearly zero\n');
+fprintf('2. Field flux Phi ∝ i_f also collapses\n');
+fprintf('3. Back-EMF e_a = G*i_f*omega_m decreases\n');
+fprintf('4. With lower back-EMF, armature sees higher effective voltage\n');
+fprintf('5. Motor accelerates rapidly: omega ∝ 1/Phi\n');
+fprintf('6. Speed rises uncontrollably - "RUNAWAY CONDITION"\n');
+fprintf('7. Mechanical structure can fail (centrifugal forces)\n');
+fprintf('8. This is why field loss protection is CRITICAL for shunt motors\n');
+
+fprintf('\n========================================\n');
+fprintf('Task 5 complete!\n');
+fprintf('Instability demonstrated successfully.\n');
+fprintf('========================================\n');
+
+%% ========================================================================
+%  ODE FUNCTION FOR SHUNT-CONNECTED DC MOTOR
+%  ========================================================================
+
+function dydt = dc_motor_shunt_ode(t, y, Lf, Rf, Rxf, La, Ra, Rxa, Va, G, J, tau_load, omega_max)
+    % Extract state variables
+    if_val = y(1);      % Field current
+    ia = y(2);          % Armature current
+    omega_m = y(3);     % Motor speed
+    
+    % For shunt connection: Vf = Va
+    Vf = Va;
+    
+    % Back EMF
+    ea = G * if_val * omega_m;
+    
+    % State equations
+    % Field circuit (shunt connection: vf = va)
+    dif_dt = (Vf - (Rf + Rxf) * if_val) / Lf;
+    
+    % Armature circuit
+    dia_dt = (Va - ia * (Ra + Rxa) - ea) / La;
+    
+    % Mechanical equation
+    tau_mech = G * if_val * ia;
+    domega_dt = (tau_mech - tau_load) / J;
+    
+    % Return derivatives
+    dydt = [dif_dt; dia_dt; domega_dt];
+end
+
+%% Event function to detect when speed exceeds limit
+function [value, isterminal, direction] = speed_limit_event(t, y, omega_max)
+    omega_m = y(3);
+    value = omega_m - omega_max;  % Detect when omega_m = omega_max
+    isterminal = 0;  % Don't stop simulation
+    direction = 1;   % Detect increasing crossing
+end
