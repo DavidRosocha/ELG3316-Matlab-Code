@@ -1,0 +1,519 @@
+%% ELG 3316 - Simulation Lab - Task 4: Speed Control
+% This script demonstrates speed control of a DC motor by varying:
+% 1. Field resistance (Rxf)
+% 2. Armature resistance (Rxa)
+% Author: [Your Name]
+% Date: [Current Date]
+
+clear all; close all; clc;
+
+fprintf('========================================\n');
+fprintf('TASK 4: SPEED CONTROL\n');
+fprintf('========================================\n\n');
+
+fprintf('Quote from A.R. Daniels:\n');
+fprintf('"...the speed of a motor can be varied by control of the\n');
+fprintf(' armature applied voltage, the armature resistance, or the\n');
+fprintf(' field flux."\n\n');
+
+%% Motor Parameters from Table 3-2 (Separately Excited DC Motor)
+Lf = 125;           % Field inductance (H)
+Rf = 240;           % Field resistance (Ohm)
+La = 0.012;         % Armature inductance (H)
+Ra = 0.6;           % Armature resistance (Ohm)
+Va = 240;           % Armature voltage (V)
+Vf = 240;           % Field voltage (V)
+G = 1.8;            % Motor constant (H)
+J = 1;              % Moment of inertia (kg.m^2)
+
+% Load torque for both cases
+tau_load = 20;      % N·m (as specified in task)
+
+fprintf('Motor Parameters:\n');
+fprintf('  V_a = %.0f V, V_f = %.0f V\n', Va, Vf);
+fprintf('  R_a = %.1f Ohm, R_f = %.0f Ohm\n', Ra, Rf);
+fprintf('  G = %.1f H, J = %.0f kg·m²\n', G, J);
+fprintf('  Load torque = %.0f Nm\n\n', tau_load);
+
+%% ========================================================================
+%  CASE 1: SPEED CONTROL BY VARYING FIELD RESISTANCE (Rxf)
+%  ========================================================================
+
+fprintf('========================================\n');
+fprintf('CASE 1: Speed Control via Field Resistance (Rxf)\n');
+fprintf('========================================\n\n');
+
+fprintf('Method: Vary Rxf while keeping Rxa = 0\n');
+fprintf('Effect: Changing field flux by changing field current\n\n');
+
+% Test different field resistance values
+Rxf_values = [0, 50, 100, 150, 200, 250, 300];
+num_Rxf = length(Rxf_values);
+Rxa_case1 = 0;  % Keep armature resistance constant
+
+% Storage for Case 1 results
+case1_results = cell(num_Rxf, 1);
+
+fprintf('Simulating Case 1...\n');
+
+for idx = 1:num_Rxf
+    Rxf = Rxf_values(idx);
+    
+    fprintf('  Rxf = %3.0f Ohm: ', Rxf);
+    
+    % Initial conditions
+    y0 = [0; 0; 0];
+    
+    % Time span
+    tspan = [0 8];  % Longer time for field transients
+    
+    % ODE function
+    ode_func = @(t, y) dc_motor_separate_ode(t, y, Lf, Rf, Rxf, La, Ra, Rxa_case1, ...
+                                              Vf, Va, G, J, tau_load);
+    
+    % Solve
+    options = odeset('RelTol', 1e-6, 'AbsTol', 1e-8);
+    [t, y] = ode45(ode_func, tspan, y0, options);
+    
+    % Extract results
+    if_t = y(:, 1);
+    ia_t = y(:, 2);
+    omega_t = y(:, 3);
+    
+    % Calculate additional quantities
+    tau_mech_t = G * if_t .* ia_t;
+    ea_t = G * if_t .* omega_t;
+    
+    % Extract steady-state values
+    ss_idx = round(0.9 * length(t)):length(t);
+    ss_if = mean(if_t(ss_idx));
+    ss_ia = mean(ia_t(ss_idx));
+    ss_omega = mean(omega_t(ss_idx));
+    ss_tau = mean(tau_mech_t(ss_idx));
+    ss_rpm = ss_omega * 60 / (2*pi);
+    
+    % Store results
+    case1_results{idx}.t = t;
+    case1_results{idx}.if_t = if_t;
+    case1_results{idx}.ia_t = ia_t;
+    case1_results{idx}.omega_t = omega_t;
+    case1_results{idx}.tau_mech_t = tau_mech_t;
+    case1_results{idx}.ea_t = ea_t;
+    case1_results{idx}.Rxf = Rxf;
+    case1_results{idx}.ss_if = ss_if;
+    case1_results{idx}.ss_ia = ss_ia;
+    case1_results{idx}.ss_omega = ss_omega;
+    case1_results{idx}.ss_rpm = ss_rpm;
+    case1_results{idx}.ss_tau = ss_tau;
+    
+    fprintf('i_f = %.3f A, omega = %.2f rad/s (%.1f RPM)\n', ss_if, ss_omega, ss_rpm);
+end
+
+fprintf('\nCase 1 complete.\n\n');
+
+%% ========================================================================
+%  CASE 2: SPEED CONTROL BY VARYING ARMATURE RESISTANCE (Rxa)
+%  ========================================================================
+
+fprintf('========================================\n');
+fprintf('CASE 2: Speed Control via Armature Resistance (Rxa)\n');
+fprintf('========================================\n\n');
+
+fprintf('Method: Vary Rxa while keeping Rxf = 0\n');
+fprintf('Effect: Changing voltage drop across armature circuit\n\n');
+
+% Test different armature resistance values
+Rxa_values = [0, 2, 4, 6, 8, 10, 12];
+num_Rxa = length(Rxa_values);
+Rxf_case2 = 0;  % Keep field resistance constant
+
+% Storage for Case 2 results
+case2_results = cell(num_Rxa, 1);
+
+fprintf('Simulating Case 2...\n');
+
+for idx = 1:num_Rxa
+    Rxa = Rxa_values(idx);
+    
+    fprintf('  Rxa = %3.0f Ohm: ', Rxa);
+    
+    % Initial conditions
+    y0 = [0; 0; 0];
+    
+    % Time span
+    tspan = [0 5];
+    
+    % ODE function
+    ode_func = @(t, y) dc_motor_separate_ode(t, y, Lf, Rf, Rxf_case2, La, Ra, Rxa, ...
+                                              Vf, Va, G, J, tau_load);
+    
+    % Solve
+    options = odeset('RelTol', 1e-6, 'AbsTol', 1e-8);
+    [t, y] = ode45(ode_func, tspan, y0, options);
+    
+    % Extract results
+    if_t = y(:, 1);
+    ia_t = y(:, 2);
+    omega_t = y(:, 3);
+    
+    % Calculate additional quantities
+    tau_mech_t = G * if_t .* ia_t;
+    ea_t = G * if_t .* omega_t;
+    
+    % Extract steady-state values
+    ss_idx = round(0.9 * length(t)):length(t);
+    ss_if = mean(if_t(ss_idx));
+    ss_ia = mean(ia_t(ss_idx));
+    ss_omega = mean(omega_t(ss_idx));
+    ss_tau = mean(tau_mech_t(ss_idx));
+    ss_rpm = ss_omega * 60 / (2*pi);
+    
+    % Store results
+    case2_results{idx}.t = t;
+    case2_results{idx}.if_t = if_t;
+    case2_results{idx}.ia_t = ia_t;
+    case2_results{idx}.omega_t = omega_t;
+    case2_results{idx}.tau_mech_t = tau_mech_t;
+    case2_results{idx}.ea_t = ea_t;
+    case2_results{idx}.Rxa = Rxa;
+    case2_results{idx}.ss_if = ss_if;
+    case2_results{idx}.ss_ia = ss_ia;
+    case2_results{idx}.ss_omega = ss_omega;
+    case2_results{idx}.ss_rpm = ss_rpm;
+    case2_results{idx}.ss_tau = ss_tau;
+    
+    fprintf('i_a = %.2f A, omega = %.2f rad/s (%.1f RPM)\n', ss_ia, ss_omega, ss_rpm);
+end
+
+fprintf('\nCase 2 complete.\n\n');
+
+%% ========================================================================
+%  PLOT RESULTS - CASE 1: FIELD RESISTANCE CONTROL
+%  ========================================================================
+
+fprintf('Creating plots...\n');
+
+% Colors for plots
+colors1 = jet(num_Rxf);
+colors2 = jet(num_Rxa);
+
+% Figure 1: Case 1 Transient Responses
+fig1 = figure('Position', [100, 100, 1400, 1000]);
+
+% Subplot 1: Field Current vs Time
+subplot(3, 2, 1);
+hold on;
+for idx = 1:num_Rxf
+    plot(case1_results{idx}.t, case1_results{idx}.if_t, 'LineWidth', 2, ...
+         'Color', colors1(idx,:), 'DisplayName', sprintf('R_{xf} = %.0f \\Omega', Rxf_values(idx)));
+end
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Field Current i_f (A)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Field Current vs Time', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Subplot 2: Armature Current vs Time
+subplot(3, 2, 2);
+hold on;
+for idx = 1:num_Rxf
+    plot(case1_results{idx}.t, case1_results{idx}.ia_t, 'LineWidth', 2, ...
+         'Color', colors1(idx,:), 'DisplayName', sprintf('R_{xf} = %.0f \\Omega', Rxf_values(idx)));
+end
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Armature Current i_a (A)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Armature Current vs Time', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Subplot 3: Motor Speed vs Time
+subplot(3, 2, 3);
+hold on;
+for idx = 1:num_Rxf
+    plot(case1_results{idx}.t, case1_results{idx}.omega_t, 'LineWidth', 2, ...
+         'Color', colors1(idx,:), 'DisplayName', sprintf('R_{xf} = %.0f \\Omega', Rxf_values(idx)));
+end
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Motor Speed \omega_m (rad/s)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Motor Speed vs Time (Field Resistance Control)', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Subplot 4: Mechanical Torque vs Time
+subplot(3, 2, 4);
+hold on;
+for idx = 1:num_Rxf
+    plot(case1_results{idx}.t, case1_results{idx}.tau_mech_t, 'LineWidth', 2, ...
+         'Color', colors1(idx,:), 'DisplayName', sprintf('R_{xf} = %.0f \\Omega', Rxf_values(idx)));
+end
+yline(tau_load, 'k--', 'LineWidth', 2, 'Label', '\tau_{load}');
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Torque \tau_{mech} (Nm)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Mechanical Torque vs Time', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Subplot 5: Steady-State Speed vs Rxf
+subplot(3, 2, 5);
+ss_omega_case1 = zeros(1, num_Rxf);
+ss_rpm_case1 = zeros(1, num_Rxf);
+for idx = 1:num_Rxf
+    ss_omega_case1(idx) = case1_results{idx}.ss_omega;
+    ss_rpm_case1(idx) = case1_results{idx}.ss_rpm;
+end
+yyaxis left
+plot(Rxf_values, ss_omega_case1, 'b-o', 'LineWidth', 2.5, 'MarkerSize', 8, 'MarkerFaceColor', 'b');
+ylabel('Speed (rad/s)', 'FontSize', 11, 'FontWeight', 'bold');
+yyaxis right
+plot(Rxf_values, ss_rpm_case1, 'r-s', 'LineWidth', 2.5, 'MarkerSize', 8, 'MarkerFaceColor', 'r');
+ylabel('Speed (RPM)', 'FontSize', 11, 'FontWeight', 'bold');
+xlabel('Field Resistance R_{xf} (\Omega)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Steady-State Speed vs Field Resistance', 'FontSize', 12, 'FontWeight', 'bold');
+grid on;
+
+% Subplot 6: Steady-State Field Current vs Rxf
+subplot(3, 2, 6);
+ss_if_case1 = zeros(1, num_Rxf);
+for idx = 1:num_Rxf
+    ss_if_case1(idx) = case1_results{idx}.ss_if;
+end
+plot(Rxf_values, ss_if_case1, 'g-^', 'LineWidth', 2.5, 'MarkerSize', 8, 'MarkerFaceColor', 'g');
+xlabel('Field Resistance R_{xf} (\Omega)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Field Current i_f (A)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Steady-State Field Current vs R_{xf}', 'FontSize', 12, 'FontWeight', 'bold');
+grid on;
+
+sgtitle('Figure 7: Speed Control via Field Resistance (R_{xf})', 'FontSize', 14, 'FontWeight', 'bold');
+
+% Save
+saveas(fig1, 'Task4_Case1_FieldResistance.png');
+saveas(fig1, 'Task4_Case1_FieldResistance.fig');
+fprintf('  Saved: Task4_Case1_FieldResistance.png/fig\n');
+
+%% ========================================================================
+%  PLOT RESULTS - CASE 2: ARMATURE RESISTANCE CONTROL
+%  ========================================================================
+
+% Figure 2: Case 2 Transient Responses
+fig2 = figure('Position', [150, 150, 1400, 1000]);
+
+% Subplot 1: Field Current vs Time
+subplot(3, 2, 1);
+hold on;
+for idx = 1:num_Rxa
+    plot(case2_results{idx}.t, case2_results{idx}.if_t, 'LineWidth', 2, ...
+         'Color', colors2(idx,:), 'DisplayName', sprintf('R_{xa} = %.0f \\Omega', Rxa_values(idx)));
+end
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Field Current i_f (A)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Field Current vs Time', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Subplot 2: Armature Current vs Time
+subplot(3, 2, 2);
+hold on;
+for idx = 1:num_Rxa
+    plot(case2_results{idx}.t, case2_results{idx}.ia_t, 'LineWidth', 2, ...
+         'Color', colors2(idx,:), 'DisplayName', sprintf('R_{xa} = %.0f \\Omega', Rxa_values(idx)));
+end
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Armature Current i_a (A)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Armature Current vs Time', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Subplot 3: Motor Speed vs Time
+subplot(3, 2, 3);
+hold on;
+for idx = 1:num_Rxa
+    plot(case2_results{idx}.t, case2_results{idx}.omega_t, 'LineWidth', 2, ...
+         'Color', colors2(idx,:), 'DisplayName', sprintf('R_{xa} = %.0f \\Omega', Rxa_values(idx)));
+end
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Motor Speed \omega_m (rad/s)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Motor Speed vs Time (Armature Resistance Control)', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Subplot 4: Mechanical Torque vs Time
+subplot(3, 2, 4);
+hold on;
+for idx = 1:num_Rxa
+    plot(case2_results{idx}.t, case2_results{idx}.tau_mech_t, 'LineWidth', 2, ...
+         'Color', colors2(idx,:), 'DisplayName', sprintf('R_{xa} = %.0f \\Omega', Rxa_values(idx)));
+end
+yline(tau_load, 'k--', 'LineWidth', 2, 'Label', '\tau_{load}');
+xlabel('Time (s)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Torque \tau_{mech} (Nm)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Mechanical Torque vs Time', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Subplot 5: Steady-State Speed vs Rxa
+subplot(3, 2, 5);
+ss_omega_case2 = zeros(1, num_Rxa);
+ss_rpm_case2 = zeros(1, num_Rxa);
+for idx = 1:num_Rxa
+    ss_omega_case2(idx) = case2_results{idx}.ss_omega;
+    ss_rpm_case2(idx) = case2_results{idx}.ss_rpm;
+end
+yyaxis left
+plot(Rxa_values, ss_omega_case2, 'b-o', 'LineWidth', 2.5, 'MarkerSize', 8, 'MarkerFaceColor', 'b');
+ylabel('Speed (rad/s)', 'FontSize', 11, 'FontWeight', 'bold');
+yyaxis right
+plot(Rxa_values, ss_rpm_case2, 'r-s', 'LineWidth', 2.5, 'MarkerSize', 8, 'MarkerFaceColor', 'r');
+ylabel('Speed (RPM)', 'FontSize', 11, 'FontWeight', 'bold');
+xlabel('Armature Resistance R_{xa} (\Omega)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Steady-State Speed vs Armature Resistance', 'FontSize', 12, 'FontWeight', 'bold');
+grid on;
+
+% Subplot 6: Steady-State Armature Current vs Rxa
+subplot(3, 2, 6);
+ss_ia_case2 = zeros(1, num_Rxa);
+for idx = 1:num_Rxa
+    ss_ia_case2(idx) = case2_results{idx}.ss_ia;
+end
+plot(Rxa_values, ss_ia_case2, 'm-d', 'LineWidth', 2.5, 'MarkerSize', 8, 'MarkerFaceColor', 'm');
+xlabel('Armature Resistance R_{xa} (\Omega)', 'FontSize', 11, 'FontWeight', 'bold');
+ylabel('Armature Current i_a (A)', 'FontSize', 11, 'FontWeight', 'bold');
+title('Steady-State Armature Current vs R_{xa}', 'FontSize', 12, 'FontWeight', 'bold');
+grid on;
+
+sgtitle('Figure 8: Speed Control via Armature Resistance (R_{xa})', 'FontSize', 14, 'FontWeight', 'bold');
+
+% Save
+saveas(fig2, 'Task4_Case2_ArmatureResistance.png');
+saveas(fig2, 'Task4_Case2_ArmatureResistance.fig');
+fprintf('  Saved: Task4_Case2_ArmatureResistance.png/fig\n');
+
+%% ========================================================================
+%  COMPARISON FIGURE
+%  ========================================================================
+
+fig3 = figure('Position', [200, 200, 1400, 600]);
+
+% Subplot 1: Speed range comparison
+subplot(1, 2, 1);
+hold on;
+plot(Rxf_values, ss_omega_case1, 'b-o', 'LineWidth', 2.5, 'MarkerSize', 10, ...
+     'MarkerFaceColor', 'b', 'DisplayName', 'Field Resistance Control');
+plot(Rxa_values, ss_omega_case2, 'r-s', 'LineWidth', 2.5, 'MarkerSize', 10, ...
+     'MarkerFaceColor', 'r', 'DisplayName', 'Armature Resistance Control');
+xlabel('Added Resistance (\Omega)', 'FontSize', 12, 'FontWeight', 'bold');
+ylabel('Steady-State Speed (rad/s)', 'FontSize', 12, 'FontWeight', 'bold');
+title('Speed Control Comparison', 'FontSize', 13, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 11);
+grid on;
+set(gca, 'FontSize', 11);
+
+% Subplot 2: Speed control effectiveness
+subplot(1, 2, 2);
+speed_range_case1 = max(ss_omega_case1) - min(ss_omega_case1);
+speed_range_case2 = max(ss_omega_case2) - min(ss_omega_case2);
+base_speed_case1 = ss_omega_case1(1);
+base_speed_case2 = ss_omega_case2(1);
+percent_range_case1 = (speed_range_case1 / base_speed_case1) * 100;
+percent_range_case2 = (speed_range_case2 / base_speed_case2) * 100;
+
+categories = {'Field Resistance\nControl', 'Armature Resistance\nControl'};
+ranges = [percent_range_case1, percent_range_case2];
+b = bar(ranges, 'FaceColor', 'flat');
+b.CData(1,:) = [0 0.4 0.8];
+b.CData(2,:) = [0.8 0.2 0.2];
+set(gca, 'XTickLabel', categories);
+ylabel('Speed Variation (%)', 'FontSize', 12, 'FontWeight', 'bold');
+title('Speed Control Range', 'FontSize', 13, 'FontWeight', 'bold');
+grid on;
+set(gca, 'FontSize', 11);
+% Add value labels
+for i = 1:2
+    text(i, ranges(i) + 5, sprintf('%.1f%%', ranges(i)), ...
+         'HorizontalAlignment', 'center', 'FontSize', 10, 'FontWeight', 'bold');
+end
+
+sgtitle('Figure 9: Comparison of Speed Control Methods', 'FontSize', 14, 'FontWeight', 'bold');
+
+% Save
+saveas(fig3, 'Task4_Comparison.png');
+saveas(fig3, 'Task4_Comparison.fig');
+fprintf('  Saved: Task4_Comparison.png/fig\n');
+
+%% ========================================================================
+%  SUMMARY TABLE AND ANALYSIS
+%  ========================================================================
+
+fprintf('\n========================================\n');
+fprintf('SUMMARY OF RESULTS\n');
+fprintf('========================================\n\n');
+
+fprintf('CASE 1: FIELD RESISTANCE CONTROL\n');
+fprintf('%-10s %-12s %-12s %-12s\n', 'Rxf (Ohm)', 'i_f (A)', 'Speed (rad/s)', 'Speed (RPM)');
+fprintf('%-10s %-12s %-12s %-12s\n', '---------', '-------', '------------', '-----------');
+for idx = 1:num_Rxf
+    fprintf('%-10.0f %-12.3f %-12.2f %-12.1f\n', Rxf_values(idx), ...
+            case1_results{idx}.ss_if, case1_results{idx}.ss_omega, case1_results{idx}.ss_rpm);
+end
+
+fprintf('\nSpeed range: %.2f - %.2f rad/s (%.1f%% variation)\n', ...
+        min(ss_omega_case1), max(ss_omega_case1), percent_range_case1);
+
+fprintf('\n\nCASE 2: ARMATURE RESISTANCE CONTROL\n');
+fprintf('%-10s %-12s %-12s %-12s\n', 'Rxa (Ohm)', 'i_a (A)', 'Speed (rad/s)', 'Speed (RPM)');
+fprintf('%-10s %-12s %-12s %-12s\n', '---------', '-------', '------------', '-----------');
+for idx = 1:num_Rxa
+    fprintf('%-10.0f %-12.2f %-12.2f %-12.1f\n', Rxa_values(idx), ...
+            case2_results{idx}.ss_ia, case2_results{idx}.ss_omega, case2_results{idx}.ss_rpm);
+end
+
+fprintf('\nSpeed range: %.2f - %.2f rad/s (%.1f%% variation)\n', ...
+        min(ss_omega_case2), max(ss_omega_case2), percent_range_case2);
+
+fprintf('\n========================================\n');
+fprintf('KEY OBSERVATIONS:\n');
+fprintf('========================================\n\n');
+
+fprintf('1. FIELD RESISTANCE CONTROL:\n');
+fprintf('   - Increasing Rxf INCREASES motor speed\n');
+fprintf('   - Mechanism: Reduces i_f → reduces flux → reduces back-EMF → speed increases\n');
+fprintf('   - Speed range: %.1f%% variation\n', percent_range_case1);
+fprintf('   - Good for ABOVE-BASE speed control\n\n');
+
+fprintf('2. ARMATURE RESISTANCE CONTROL:\n');
+fprintf('   - Increasing Rxa DECREASES motor speed\n');
+fprintf('   - Mechanism: Increases voltage drop → reduces effective armature voltage\n');
+fprintf('   - Speed range: %.1f%% variation\n', percent_range_case2);
+fprintf('   - Good for BELOW-BASE speed control\n');
+fprintf('   - BUT: Wastes power in external resistance (inefficient)\n\n');
+
+fprintf('3. COMPARISON:\n');
+fprintf('   - Field control: Speed %.2f → %.2f rad/s (%.1f%% change)\n', ...
+        ss_omega_case1(1), ss_omega_case1(end), ...
+        ((ss_omega_case1(end) - ss_omega_case1(1))/ss_omega_case1(1))*100);
+fprintf('   - Armature control: Speed %.2f → %.2f rad/s (%.1f%% change)\n', ...
+        ss_omega_case2(1), ss_omega_case2(end), ...
+        ((ss_omega_case2(end) - ss_omega_case2(1))/ss_omega_case2(1))*100);
+fprintf('   - Field control provides wider speed range\n');
+fprintf('   - Armature control is more efficient but limited range\n\n');
+
+fprintf('========================================\n');
+fprintf('Task 4 complete!\n');
+fprintf('All figures saved.\n');
+fprintf('========================================\n');
+
+%% ODE Function
+function dydt = dc_motor_separate_ode(t, y, Lf, Rf, Rxf, La, Ra, Rxa, Vf, Va, G, J, tau_load)
+    if_val = y(1);
+    ia = y(2);
+    omega_m = y(3);
+    
+    ea = G * if_val * omega_m;
+    
+    dif_dt = (Vf - (Rf + Rxf) * if_val) / Lf;
+    dia_dt = (Va - ia * (Ra + Rxa) - ea) / La;
+    
+    tau_mech = G * if_val * ia;
+    domega_dt = (tau_mech - tau_load) / J;
+    
+    dydt = [dif_dt; dia_dt; domega_dt];
+end
